@@ -1,88 +1,60 @@
 # -*- coding: utf-8 -*-
 """
-OpenEnv Inference Server
-========================
-Flask server exposing the Supply Chain RL environment via HTTP endpoints.
-Built for: Meta PyTorch OpenEnv Hackathon x Scaler School of Technology
+Baseline Inference Script for OpenEnv
+Evaluates an Agent on the Supply Chain RL Environment.
 """
-import sys
 import os
-
-# Ensure the supply-chain-rl subdirectory is importable
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "supply-chain-rl"))
-
-from flask import Flask, request, jsonify
+import sys
+import json
+from openai import OpenAI
 from supply_chain_env import SupplyChainEnv, Action
 
-app = Flask(__name__)
-env = SupplyChainEnv()
+def run_baseline():
+    # 1. Read required environment variables with defaults
+    api_base_url = os.environ.get("API_BASE_URL", "https://api-inference.huggingface.co/v1/")
+    model_name = os.environ.get("MODEL_NAME", "meta-llama/Meta-Llama-3-8B-Instruct")
+    hf_token = os.environ.get("HF_TOKEN")
+    
+    # 2. Validate HF_TOKEN
+    if not hf_token:
+        print("Warning: HF_TOKEN environment variable is missing or empty.", file=sys.stderr)
+        
+    client = OpenAI(
+        base_url=api_base_url,
+        api_key=hf_token or "mock_token"
+    )
 
+    env = SupplyChainEnv(task="medium", max_steps=10)
 
-@app.route("/reset", methods=["GET", "POST"])
-def reset():
-    """Reset the environment and return the initial observation."""
-    data = (request.json or {}) if request.method == "POST" else {}
-    seed = data.get("seed", None)
-    task = data.get("task", None)
+    # 3. Exactly print [START] before execution
+    print("[START]")
+    try:
+        obs = env.reset(seed=42)
+        done = False
+        
+        while not done:
+            # 4. Exactly print [STEP] on every step
+            print("[STEP]")
+            
+            # Simple dummy heuristics for agent action to ensure execution
+            action_array = [3.0] * env.n_warehouses
+            action = Action(restock_quantities=action_array)
+            obs, reward, done, info = env.step(action)
+            
+            # 5. Format outputs correctly: 
+            # - exactly 2 decimal places for reward
+            # - lowercase booleans for done and success
+            reward_val = f"{float(reward.value):.2f}"
+            is_done = "true" if done else "false"
+            is_success = "true" if env.grade() >= 0.8 else "false"
+            
+            print(f'{{"reward": {reward_val}, "done": {is_done}, "success": {is_success}}}')
 
-    # If a task config is provided, recreate the env with that task
-    if task:
-        global env
-        env = SupplyChainEnv(task=task)
-
-    obs = env.reset(seed=seed)
-    return jsonify({
-        "observation": obs.model_dump(),
-        "info": {}
-    })
-
-
-@app.route("/step", methods=["POST"])
-def step():
-    """Take one step in the environment with the given action."""
-    data = request.json
-    action_data = data.get("action", {})
-
-    # Support both {"restock_quantities": [...]} and raw list [...]
-    if isinstance(action_data, list):
-        action = Action(restock_quantities=action_data)
-    elif isinstance(action_data, dict):
-        action = Action(**action_data)
-    else:
-        return jsonify({"error": "Invalid action format"}), 400
-
-    obs, reward, done, info = env.step(action)
-    return jsonify({
-        "observation": obs.model_dump(),
-        "reward": reward.model_dump(),
-        "terminated": done,
-        "truncated": False,
-        "info": info.model_dump()
-    })
-
-
-@app.route("/grade", methods=["GET", "POST"])
-def grade():
-    """Return the current episode grade (0.0 - 1.0)."""
-    return jsonify({
-        "grade": env.grade()
-    })
-
-
-@app.route("/state", methods=["GET", "POST"])
-def state():
-    """Return the current environment state."""
-    obs = env.state()
-    return jsonify({
-        "observation": obs.model_dump()
-    })
-
-
-@app.route("/health", methods=["GET"])
-def health():
-    """Health check endpoint."""
-    return jsonify({"status": "ok"})
-
+    except Exception as e:
+        print(f"Exception encountered: {e}", file=sys.stderr)
+    finally:
+        # 6. Exactly print [END] always, even on exception
+        print("[END]")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=7860)
+    run_baseline()
