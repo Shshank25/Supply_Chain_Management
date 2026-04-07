@@ -2206,8 +2206,8 @@ def run_episode(n_warehouses, n_retailers, seed, agent=None):
 
     for step in range(100):
         if agent is not None:
-            # RL agent needs numpy array
-            action_raw, _ = agent.predict(obs_np, deterministic=True)
+            # RL agent needs scaled numpy array
+            action_raw = predict_agent_action(agent, obs_np, env)
             action = Action(restock_quantities=action_raw.tolist())
         else:
             action_raw = env.action_space.sample()
