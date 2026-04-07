@@ -18,10 +18,10 @@ app = Flask(__name__)
 env = SupplyChainEnv()
 
 
-@app.route("/reset", methods=["POST"])
+@app.route("/reset", methods=["GET", "POST"])
 def reset():
     """Reset the environment and return the initial observation."""
-    data = request.json or {}
+    data = (request.json or {}) if request.method == "POST" else {}
     seed = data.get("seed", None)
     task = data.get("task", None)
 
