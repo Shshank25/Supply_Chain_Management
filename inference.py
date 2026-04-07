@@ -24,7 +24,7 @@ def run_baseline():
         api_key=hf_token or "mock_token"
     )
 
-    env = SupplyChainEnv(task="medium", max_steps=10)
+    env = SupplyChainEnv(task="medium", max_steps=10, use_pydantic=True)
 
     # 3. Exactly print [START] before execution
     print("[START]")

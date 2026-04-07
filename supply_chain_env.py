@@ -53,12 +53,13 @@ class SupplyChainEnv(_BaseEnv):
     """
     metadata = {"render_modes": []}
 
-    def __init__(self, n_warehouses=3, n_retailers=5, max_steps=100, task="medium"):
+    def __init__(self, n_warehouses=3, n_retailers=5, max_steps=100, task="medium", use_pydantic=False):
         super().__init__()
         self.n_warehouses = n_warehouses
         self.n_retailers  = n_retailers
         self.max_steps    = max_steps
         self.task         = task  # easy, medium, hard
+        self.use_pydantic = use_pydantic
         self.timestep     = 0
         self.inventory    = None
         self.demand       = None
@@ -83,7 +84,7 @@ class SupplyChainEnv(_BaseEnv):
             dtype=np.float32
         )
 
-    def reset(self, seed=None, options=None) -> Observation:
+    def reset(self, seed=None, options=None):
         if hasattr(super(), 'reset'):
             try:
                 super().reset(seed=seed)
@@ -102,15 +103,28 @@ class SupplyChainEnv(_BaseEnv):
 
         # Start low so agent learns to actively restock
         self.inventory = np.ones(self.n_warehouses, dtype=np.float32) * 3
-        self.demand    = np.random.uniform(1, 5, self.n_retailers).astype(np.float32)
-        return self._get_obs()
+        self.demand    = np.random.uniform(1, 4, self.n_retailers).astype(np.float32)
+        
+        obs = self._get_obs()
+        if self.use_pydantic:
+            return obs
+        return self._get_obs_np(obs), {}
 
-    def state(self) -> Observation:
+    def state(self):
         """OpenEnv specification: returns the current state."""
-        return self._get_obs()
+        obs = self._get_obs()
+        if self.use_pydantic:
+            return obs
+        return self._get_obs_np(obs)
 
-    def step(self, action: Action):
-        restock = np.array(action.restock_quantities, dtype=np.float32)
+    def step(self, action):
+        # Handle both Pydantic Action and raw numpy array
+        if isinstance(action, Action):
+            restock_quantities = action.restock_quantities
+        else:
+            restock_quantities = action
+            
+        restock = np.array(restock_quantities, dtype=np.float32)
         restock = np.clip(restock, 0, 10)
 
         can_restock, demand_mult = self._inject_disruption()
@@ -136,17 +150,23 @@ class SupplyChainEnv(_BaseEnv):
                 self.inventory - self.inventory * ratio, 0
             )
 
-        self.demand    = np.random.uniform(1, 5, self.n_retailers).astype(np.float32)
+        self.demand    = np.random.uniform(1, 4, self.n_retailers).astype(np.float32)
         self.timestep += 1
-        done           = self.timestep >= self.max_steps
+        terminated     = self.timestep >= self.max_steps
+        truncated      = False
 
         rew_value = self._compute_reward(total_demand, fulfilled, overstock)
         self.episode_rewards.append(rew_value)
         
-        reward = Reward(value=rew_value, incremental_fulfilled=fulfilled)
-        info = Info(**self._get_metrics(actual_demand.sum(), fulfilled, stockout, overstock))
+        obs_obj = self._get_obs()
+        metrics = self._get_metrics(total_demand, fulfilled, stockout, overstock)
 
-        return self._get_obs(), reward, done, info
+        if self.use_pydantic:
+            reward = Reward(value=rew_value, incremental_fulfilled=fulfilled)
+            info = Info(**metrics)
+            return obs_obj, reward, terminated, info
+
+        return self._get_obs_np(obs_obj), rew_value, terminated, truncated, metrics
 
     def grade(self) -> float:
         """
@@ -164,6 +184,13 @@ class SupplyChainEnv(_BaseEnv):
             timestep=self.timestep,
             max_steps=self.max_steps
         )
+
+    def _get_obs_np(self, obs: Observation) -> np.ndarray:
+        return np.concatenate([
+            obs.inventory,
+            obs.demand,
+            [float(obs.timestep)]
+        ]).astype(np.float32)
 
     def _compute_reward(self, demand, fulfilled, overstock):
         """
@@ -231,17 +258,19 @@ class SupplyChainEnv(_BaseEnv):
 
 if __name__ == "__main__":
     print(f"Backend: {_GYM_BACKEND}")
-    env = SupplyChainEnv()
-    obs = env.reset()
-    print(f"Obs: {obs}")
+    env = SupplyChainEnv(use_pydantic=False)
+    obs, _ = env.reset()
+    print(f"Obs type: {type(obs)} | Shape: {obs.shape}")
     total = 0
     for _ in range(100):
         # sample action
         sampled = env.action_space.sample()
-        act = Action(restock_quantities=sampled.tolist())
-        o, r, d, i = env.step(act)
-        total += r.value
-        if d: break
+        o, r, d, tr, i = env.step(sampled)
+        total += r
+        if d or tr: break
+    print(f"Total reward: {total:.2f}")
+    print(f"Grade: {env.grade():.2f}")
+    print("Environment OK!")
     print(f"Total reward: {total:.2f}")
     print(f"Grade: {env.grade():.2f}")
     print("Environment OK!")

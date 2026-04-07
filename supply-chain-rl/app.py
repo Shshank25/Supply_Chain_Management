@@ -2197,9 +2197,7 @@ def run_episode(n_warehouses, n_retailers, seed, agent=None):
         n_retailers=int(n_retailers)
     )
 
-    obs = env.reset(seed=seed)
-    # Convert Pydantic Observation to numpy for agent
-    obs_np = np.concatenate([obs.inventory, obs.demand, [obs.timestep / obs.max_steps]]).astype(np.float32)
+    obs_np, _ = env.reset(seed=seed)
     
     rewards, fulfillments, stockouts = [], [], []
     total_reward = 0
@@ -2208,20 +2206,18 @@ def run_episode(n_warehouses, n_retailers, seed, agent=None):
         if agent is not None:
             # RL agent needs scaled numpy array
             action_raw = predict_agent_action(agent, obs_np, env)
-            action = Action(restock_quantities=action_raw.tolist())
+            action = action_raw.tolist()
         else:
             action_raw = env.action_space.sample()
-            action = Action(restock_quantities=action_raw.tolist())
+            action = action_raw.tolist()
 
-        obs, reward, done, info = env.step(action)
-        # Update obs_np for next step
-        obs_np = np.concatenate([obs.inventory, obs.demand, [obs.timestep / obs.max_steps]]).astype(np.float32)
+        obs_np, reward, done, truncated, info = env.step(action)
         
-        total_reward += reward.value
-        rewards.append(reward.value)
-        fulfillments.append(info.fulfillment_rate * 100)
-        stockouts.append(info.stockout_rate * 100)
-        if done:
+        total_reward += reward
+        rewards.append(reward)
+        fulfillments.append(info["fulfillment_rate"] * 100)
+        stockouts.append(info["stockout_rate"] * 100)
+        if done or truncated:
             break
 
     summary = env.get_episode_summary()
