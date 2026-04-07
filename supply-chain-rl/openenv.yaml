@@ -1,0 +1,23 @@
+name: supply-chain-rl
+version: "1.0.0"
+description: >
+  Supply Chain Management environment where agents must fulfill store demand
+  from multiple warehouses across varying levels of supply chain disruptions.
+environment:
+  entrypoint: supply_chain_env:SupplyChainEnv
+
+tasks:
+  - id: easy
+    description: "Stable supply chain with no major disruptions."
+    config:
+      task: easy
+      
+  - id: medium
+    description: "Occasional demand spikes and brief supplier delays."
+    config:
+      task: medium
+      
+  - id: hard
+    description: "Frequent severe supply chain delays and massive demand shocks."
+    config:
+      task: hard

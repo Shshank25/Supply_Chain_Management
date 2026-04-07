@@ -5,6 +5,7 @@ Supply Chain RL Environment
 Built for: Meta PyTorch OpenEnv Hackathon x Scaler School of Technology
 """
 import numpy as np
+from pydantic import BaseModel, Field
 
 # OpenEnv compatibility — falls back to Gymnasium if OpenEnv unavailable
 try:
@@ -18,6 +19,30 @@ except Exception:
     _BaseEnv = gym.Env
     _GYM_BACKEND = "gymnasium"
 
+# ==========================================
+# OpenEnv Pydantic Models
+# ==========================================
+class Observation(BaseModel):
+    inventory: list[float] = Field(description="Inventory levels at each warehouse")
+    demand: list[float] = Field(description="Current demand at each retailer")
+    timestep: int = Field(description="Current timestep")
+    max_steps: int = Field(description="Maximum steps in the episode")
+
+class Action(BaseModel):
+    restock_quantities: list[float] = Field(description="Restock quantity per warehouse (0-10)")
+
+class Reward(BaseModel):
+    value: float = Field(description="Fulfillment reward, ranges -1 to +1")
+    incremental_fulfilled: float = Field(description="Incremental items fulfilled in this step")
+
+class Info(BaseModel):
+    fulfillment_rate: float
+    stockout_rate: float
+    efficiency_score: float
+    episode_fulfillment: float
+    total_demand: float
+    total_fulfilled: float
+    total_stockouts: float
 
 class SupplyChainEnv(_BaseEnv):
     """
@@ -25,31 +50,15 @@ class SupplyChainEnv(_BaseEnv):
 
     The agent controls restocking decisions across multiple warehouses
     to fulfill retailer demand while handling real-world disruptions.
-
-    Observation Space:
-        - Inventory levels at each warehouse
-        - Current demand at each retailer
-        - Normalized timestep
-
-    Action Space:
-        - Restock quantity per warehouse (0-10 units each)
-
-    Reward:
-        - Based on fulfillment rate
-        - Range: -1.0 (worst) to +1.0 (best)
-
-    Disruptions:
-        - 70% Normal day
-        - 20% Demand spike (x2 demand)
-        - 10% Supplier delay (no restock)
     """
     metadata = {"render_modes": []}
 
-    def __init__(self, n_warehouses=3, n_retailers=5, max_steps=100):
+    def __init__(self, n_warehouses=3, n_retailers=5, max_steps=100, task="medium"):
         super().__init__()
         self.n_warehouses = n_warehouses
         self.n_retailers  = n_retailers
         self.max_steps    = max_steps
+        self.task         = task  # easy, medium, hard
         self.timestep     = 0
         self.inventory    = None
         self.demand       = None
@@ -74,7 +83,7 @@ class SupplyChainEnv(_BaseEnv):
             dtype=np.float32
         )
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options=None) -> Observation:
         if hasattr(super(), 'reset'):
             try:
                 super().reset(seed=seed)
@@ -94,15 +103,20 @@ class SupplyChainEnv(_BaseEnv):
         # Start low so agent learns to actively restock
         self.inventory = np.ones(self.n_warehouses, dtype=np.float32) * 3
         self.demand    = np.random.uniform(1, 5, self.n_retailers).astype(np.float32)
-        return self._get_obs(), {}
+        return self._get_obs()
 
-    def step(self, action):
-        action = np.clip(action, 0, 10)
+    def state(self) -> Observation:
+        """OpenEnv specification: returns the current state."""
+        return self._get_obs()
+
+    def step(self, action: Action):
+        restock = np.array(action.restock_quantities, dtype=np.float32)
+        restock = np.clip(restock, 0, 10)
 
         can_restock, demand_mult = self._inject_disruption()
 
         if can_restock:
-            self.inventory += action
+            self.inventory += restock
 
         actual_demand = self.demand * demand_mult
         total_demand  = float(actual_demand.sum())
@@ -126,23 +140,36 @@ class SupplyChainEnv(_BaseEnv):
         self.timestep += 1
         done           = self.timestep >= self.max_steps
 
-        reward = self._compute_reward(total_demand, fulfilled, overstock)
-        self.episode_rewards.append(reward)
+        rew_value = self._compute_reward(total_demand, fulfilled, overstock)
+        self.episode_rewards.append(rew_value)
+        
+        reward = Reward(value=rew_value, incremental_fulfilled=fulfilled)
+        info = Info(**self._get_metrics(actual_demand.sum(), fulfilled, stockout, overstock))
 
-        info = self._get_metrics(total_demand, fulfilled, stockout, overstock)
-        return self._get_obs(), reward, done, False, info
+        return self._get_obs(), reward, done, info
 
-    def _get_obs(self):
-        return np.concatenate([
-            np.clip(self.inventory, 0, 500),
-            np.clip(self.demand,    0, 500),
-            [self.timestep / self.max_steps]
-        ]).astype(np.float32)
+    def grade(self) -> float:
+        """
+        OpenEnv programmatic grader: 
+        Returns a score bounded between 0.0 and 1.0 reflecting how well the agent performed.
+        """
+        if self.total_demand == 0:
+            return 0.0
+        return float(np.clip(self.total_fulfilled / self.total_demand, 0.0, 1.0))
+
+    def _get_obs(self) -> Observation:
+        return Observation(
+            inventory=np.clip(self.inventory, 0, 500).tolist(),
+            demand=np.clip(self.demand, 0, 500).tolist(),
+            timestep=self.timestep,
+            max_steps=self.max_steps
+        )
 
     def _compute_reward(self, demand, fulfilled, overstock):
         """
         Simple fulfillment reward.
         High fulfillment = high reward.
+        Incremental progress rewarded.
         """
         rate   = fulfilled / (demand + 1e-9)
         reward = (rate * 2) - 1
@@ -155,14 +182,20 @@ class SupplyChainEnv(_BaseEnv):
 
     def _inject_disruption(self):
         """
-        Random supply chain disruptions:
-            70% Normal day
-            20% Demand spike (x2)
-            10% Supplier delay (no restock)
+        Random supply chain disruptions based on task difficulty.
         """
+        if self.task == "easy":
+            p = [1.0, 0.0, 0.0]
+        elif self.task == "medium":
+            p = [0.7, 0.2, 0.1]
+        elif self.task == "hard":
+            p = [0.4, 0.35, 0.25]
+        else:
+            p = [1.0, 0.0, 0.0]
+            
         event = np.random.choice(
             ["none", "demand_spike", "supplier_delay"],
-            p=[0.7, 0.2, 0.1]
+            p=p
         )
         if event == "demand_spike":
             return True, 2.0
@@ -199,12 +232,16 @@ class SupplyChainEnv(_BaseEnv):
 if __name__ == "__main__":
     print(f"Backend: {_GYM_BACKEND}")
     env = SupplyChainEnv()
-    obs, _ = env.reset()
-    print(f"Obs shape : {obs.shape}")
+    obs = env.reset()
+    print(f"Obs: {obs}")
     total = 0
     for _ in range(100):
-        o, r, d, _, i = env.step(env.action_space.sample())
-        total += r
+        # sample action
+        sampled = env.action_space.sample()
+        act = Action(restock_quantities=sampled.tolist())
+        o, r, d, i = env.step(act)
+        total += r.value
         if d: break
     print(f"Total reward: {total:.2f}")
+    print(f"Grade: {env.grade():.2f}")
     print("Environment OK!")

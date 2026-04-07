@@ -1,216 +1,63 @@
-# 🚀 Supply Chain RL – AI-Powered Inventory Optimization
+# Supply Chain RL
+**Meta PyTorch OpenEnv Hackathon Submission**
 
-<p align="center">
-  <img src="https://img.shields.io/badge/AI-Reinforcement%20Learning-blue?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Algorithm-A2C-green?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Environment-OpenEnv%20%7C%20Gymnasium-orange?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Hackathon-Meta%20OpenEnv-purple?style=for-the-badge" />
-</p>
+## Environment Overview & Motivation
+This repository provides a custom OpenEnv environment simulating real-world Supply Chain Management. The agent is tasked with making daily restocking decisions across multiple warehouses to fulfill stochastic retail demand. It aims to bridge the gap between academic RL puzzles and complex, noisy environments humans interact with daily. The agent is rewarded for maintaining high fulfillment rates while minimizing extreme overstock and handling random demand spikes or supplier delays.
 
-<p align="center">
-  <b>AI-driven supply chain optimization under real-world uncertainty</b><br>
-  <i>+90.7 reward improvement across dynamic configurations</i>
-</p>
+## Task Configurations
 
----
+The environment operates under an OpenEnv schema, testing agents across three difficulty tasks:
 
-## 🖥️ Dashboard Preview
+* **easy**: Stable supply chain with normal baseline demand (100% normal days).
+* **medium**: Occasional demand shocks and supplier delays (70% normal, 20% spike, 10% delay).
+* **hard**: Frequent severe shocks preventing restocking and doubling demand natively (40% normal, 35% spike, 25% delay).
 
-<p align="center">
-  <img src="assets/dashboard_preview.png" alt="Dashboard Preview" width="90%" />
-</p>
+## Spaces Definition (Pydantic OpenEnv Models)
 
----
+* **Observation Model**:
+  * `inventory` (List[float]): Current stock at each warehouse.
+  * `demand` (List[float]): Current outstanding order demands at each retailer.
+  * `timestep` (int): Number of steps elapsed.
+  * `max_steps` (int): Maximum episode length.
 
-## 📈 Learning Curve
+* **Action Model**:
+  * `restock_quantities` (List[float]): Quantity to order for each warehouse (0-10 units bounded).
 
-<p align="center">
-  <img src="assets/learning_curve.png" width="90%" />
-</p>
+* **Reward Model**:
+  * `value` (float): The actual scalar reward between -1.0 and 1.0 driving RL loop optimization.
+  * `incremental_fulfilled` (float): Extra context regarding how many actual unit bounds were served this timestep.
 
----
+* **Info Model**: Contains deterministic metrics like `fulfillment_rate` and `stockout_rate` used for grading.
 
-## 🧠 Overview
+## Setup and Usage Instructions
 
-This project demonstrates how **Reinforcement Learning (RL)** can optimize supply chain decisions by dynamically allocating inventory across warehouses and retailers under uncertain conditions.
+### Local Execution (Python)
+1. Install requirements:
+   ```bash
+   pip install pydantic numpy gym stable-baselines3 openai gradio shimmy
+   ```
+2. Validate compliance:
+   ```bash
+   openenv validate
+   ```
+3. Run Local UI Dashboard:
+   ```bash
+   python app.py
+   ```
+   Navigate to `http://localhost:7860` in your browser.
 
-Unlike static approaches, the system is trained across multiple configurations and disruptions, allowing it to **adapt and generalize** rather than memorize fixed strategies.
-
----
-
-## 🎯 Problem Statement
-
-In modern logistics systems:
-
-- Too little stock → stockouts → lost revenue
-- Too much stock → excess inventory → higher cost
-- Demand & supply are unpredictable
-
-👉 The objective is to **learn optimal inventory allocation under uncertainty**.
-
----
-
-## 🤖 Solution
-
-We model the system as a reinforcement learning environment:
-
-- **Agent** → decides stock distribution
-- **Environment** → simulates supply chain dynamics
-- **Reward** → based on fulfillment efficiency
-
-### Algorithm Used:
-
-**Advantage Actor-Critic (A2C)**
-
----
-
-## ✨ Key Features
-
-- 📦 Multi-warehouse & multi-retailer simulation
-- ⚡ Real-world disruptions (demand spikes, supplier delays)
-- 📊 Interactive dashboard visualization
-- ⚖️ Fair comparison (Trained vs Random agent)
-- 📈 Performance tracking (reward, fulfillment, stockouts)
-
----
-
-## 📊 Results
-
-<p align="center">
-  <img src="assets/results_chart.png" width="80%" />
-</p>
-
-| Metric           | Trained Agent | Random Agent |
-| ---------------- | ------------- | ------------ |
-| Fulfillment Rate | 97.5%         | 71.9%        |
-| Stockout Rate    | 2.5%          | 28.1%        |
-| Avg Reward       | 0.950         | 0.513        |
-| Total Reward     | 94.99         | 51.29        |
-
-### 🔥 Key Insight
-
-> **+90.7 reward improvement from initial training to final policy**
-
----
-
-## 🎮 Dashboard Features
-
-### 🔹 Scenario Composer
-
-- Adjust warehouses & retailers
-- Run controlled simulations
-
-### 🔹 Evaluation Mode
-
-- 5 synchronized rollouts
-- Same disruptions for fair comparison
-
-### 🔹 Visualization
-
-- 📉 Reward trajectory
-- 📈 Service level curves
-- 📊 Policy comparison charts
-
----
-
-## 🧪 How It Works
-
-```
-State → Action → Environment → Reward → Learning → Improved Policy
-```
-
-1. Observe system state (inventory, demand, timestep)
-2. Allocate inventory across warehouses
-3. Simulate demand and disruptions
-4. Compute reward based on fulfillment
-5. Update policy over time
-
----
-
-## 🏗️ Project Structure
-
-```
-supply-chain-rl/
-│── supply_chain_env.py     # RL environment
-│── train.py                # A2C training pipeline
-│── inference.py            # Evaluation script
-│── app.py                  # Dashboard UI
-│── models/                 # Saved trained agents
-│── assets/                 # Images & visuals
-```
-
----
-
-## ▶️ Getting Started
-
-### Clone repository
-
+### Containerized Execution (Docker)
+This repository is pre-configured for Docker and Hugging Face space deployments:
 ```bash
-git clone https://github.com/Shshank25/Supply_Chain_Management.git
-cd supply-chain-rl
+docker build -t openenv .
+docker run -p 7860:7860 openenv
 ```
 
-### Install dependencies
+## Baseline Performance Scores
 
-```bash
-pip install -r requirements.txt
-```
+A baseline `inference.py` is included utilizing the strict OpenAI API (`gpt-4o-mini`) via API key prompt-structuring.
+* Easy Task Score: ~0.94
+* Medium Task Score: ~0.83
+* Hard Task Score: ~0.65 
 
-### Train the model
-
-```bash
-python train.py
-```
-
-### Run inference
-
-```bash
-python inference.py
-```
-
-### Launch dashboard
-
-```bash
-python app.py
-```
-
----
-
-## 🌍 Applications
-
-- 🛒 E-commerce logistics
-- 🏭 Inventory planning
-- 🚚 Supply chain optimization
-- 📦 Warehouse management
-
----
-
-## 💡 Why RL?
-
-| Traditional Methods       | RL Approach                 |
-| ------------------------- | --------------------------- |
-| Static rules              | Adaptive learning           |
-| Cannot handle uncertainty | Handles dynamic disruptions |
-| Manual tuning             | Self-improving              |
-
----
-
-## 🚀 Future Scope
-
-- Cost-aware optimization (holding + transport costs)
-- Multi-agent coordination
-- Real-world dataset integration
-- Demand forecasting integration
-
----
-
-## ⭐ Show Your Support
-
-If you found this project useful, consider giving it a ⭐ on GitHub.
-
----
-
-## 📌 Tagline
-
-> _“Smarter supply chains powered by adaptive intelligence.”_
+(*Generated scores based on 0.0 - 1.0 grader API bounds dynamically populated in `env.grade()`*)
