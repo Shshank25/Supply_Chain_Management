@@ -1,3 +1,13 @@
+---
+title: Supply Chain Rl
+emoji: 🚀
+colorFrom: pink
+colorTo: purple
+sdk: gradio
+sdk_version: 4.31.5
+app_file: supply-chain-rl/app.py
+pinned: false
+---
 # Supply Chain RL
 **Meta PyTorch OpenEnv Hackathon Submission**
 
